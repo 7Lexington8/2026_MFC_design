@@ -1,0 +1,60 @@
+# Visual Studio user state
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.VC.db
+*.VC.opendb
+
+# CMake and generated build trees
+/build/
+/build-*/
+/cmake-build-*/
+/out/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+*.ninja
+.ninja_*
+
+# Native build products
+*.obj
+*.o
+*.pch
+*.pdb
+*.idb
+*.ilk
+*.exe
+*.dll
+*.lib
+*.exp
+*.tlog
+*.recipe
+*.lastbuildstate
+
+# Local models and runtime state
+/AIModels/
+/*.gguf
+/*.ggml
+LocalSenseNovaHistory.dat
+
+# CUDA-generated files
+*.cubin
+*.fatbin
+*.ptx
+
+# Logs, temporary files, and caches
+*.log
+*.tmp
+*.temp
+__pycache__/
+*.py[cod]
+.DS_Store
+Thumbs.db
+
+# Local environment files
+.env
+.env.*
+!.env.example
