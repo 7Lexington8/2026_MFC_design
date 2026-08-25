@@ -1,8 +1,8 @@
-# LocalSenseNova — B9 本地小模型课程作业 MVP
+# LocalSenseNova — B9 本地小模型课程作业
 
 这是一个面向 **Visual Studio 2022 + C++ MFC + llama.cpp + SenseNova 8B GGUF** 的第一版可运行工程骨架。
 
-当前版本已经把课程 B9 要求拆成了真正的代码模块，而不是只做界面：
+当前版本已经把 B9 要求拆成了代码模块：
 
 - MFC 对话框桌面端
 - 选择并加载本地 `.gguf` 模型
@@ -82,8 +82,6 @@ build-cuda/Release/LocalSenseNova.exe
 程序会在 llama.cpp 构建支持 GPU offload 时尝试将模型层卸载到 GPU；CPU-only 构建自动走 CPU。
 
 ## 3. 模型
-
-课程要求是 SenseNova 8B 的 GGUF 文件，因此最稳妥的是使用老师提供/指定的 GGUF。
 
 程序没有把具体文件名写死，只要求扩展名为 `.gguf`。运行后：
 
