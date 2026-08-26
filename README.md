@@ -1,206 +1,277 @@
-# LocalSenseNova — B9 本地小模型课程作业
+# LocalSenseNova v0.3
 
-这是一个面向 **Visual Studio 2022 + C++ MFC + llama.cpp + SenseNova 8B GGUF** 的第一版可运行工程骨架。
+LocalSenseNova 是我们围绕课程设计 B9 完成的 Windows 本地大模型聊天程序。项目不训练模型，也不通过 Python、网页或远程 API 转发请求；界面使用 C++ MFC，推理由 llama.cpp 的原生 C/C++ API 完成，模型和聊天记录都保存在本机。
 
-当前版本已经把 B9 要求拆成了代码模块：
+当前版本面向 SenseNova 8B GGUF，同时也可以尝试加载 llama.cpp 支持的其他 GGUF 模型。不同模型的指令格式和回答效果可能有差异。
 
-- MFC 对话框桌面端
-- 选择并加载本地 `.gguf` 模型
-- `llama.cpp` 原生 C/C++ API 推理
-- `std::thread` 后台推理，避免 UI 假死
-- Token 级流式输出到 `CRichEditCtrl`
-- Stop 中止生成
-- System Prompt
-- Temperature / Top-P / Top-K / Repeat Penalty / Max Tokens
-- 普通助手 / C++ 代码助手 / 中英翻译 / 公文写作一键预设
-- 多会话：新建、切换、删除
-- 多轮历史上下文
-- 自动保存会话历史到 EXE 同目录 `LocalSenseNovaHistory.dat`
-- 状态栏显示 Prompt token 数、生成 token 数和 tok/s
-- CPU 构建脚本；另附可选 NVIDIA CUDA 构建脚本
+## 当前完成情况
 
-> **模型文件不包含在压缩包内。** 8B GGUF 往往是数 GB，课程提交本身也要求控制体积。程序运行时点击“选择并加载 GGUF”即可。
+- [x] 选择并加载本地 SenseNova 8B `.gguf` 模型
+- [x] 直接集成 llama.cpp，完成 Chat Template、Tokenize、Decode 与 Sampling
+- [x] `std::thread + PostMessage` 后台推理和 Token 级流式显示
+- [x] Stop 协作式停止生成
+- [x] 多轮对话和多会话的新建、切换、删除
+- [x] 会话历史本地持久化，程序重启后自动恢复
+- [x] System Prompt 和 Temperature、Top-P、Top-K、Repeat Penalty、Max Tokens 调节
+- [x] 普通助手、C++ 代码助手、中英翻译、公文写作四套预设
+- [x] Prompt token、生成 token 和生成阶段 `tok/s` 统计
+- [x] MFC 自定义浅色主题、会话列表自绘、可收起参数面板和窗口自适应布局
+- [x] Per-Monitor V2 高 DPI 启动缩放适配
+- [x] x64 Release 的 CPU 构建脚本和可选 NVIDIA CUDA 构建脚本
 
-## 1. 开发环境
+> 模型文件不在仓库和课程提交包中。8B GGUF 通常有数 GB，请按模型发布方的许可单独取得并放在本机。
 
-建议 Windows 10/11 x64。
+## 技术路线
 
-Visual Studio Installer 中至少安装：
+```text
+SenseNova 8B GGUF
+        │
+        ▼
+llama.cpp 原生 C/C++ API
+        │
+        ▼
+LLMEngine：模型、上下文、采样、停止与统计
+        │ Token callback
+        ▼
+std::thread 后台任务 ── PostMessage ──► MFC UI 线程
+        │                                  │
+        │                                  ├─ CRichEditCtrl 流式显示
+        │                                  ├─ 参数与状态栏
+        │                                  └─ 自绘会话列表
+        ▼
+ConversationManager ── LocalSenseNovaHistory.dat
+```
 
-1. **使用 C++ 的桌面开发**
-2. MSVC v143
-3. Windows 10/11 SDK
-4. **C++ MFC for latest v143 build tools (x86 & x64)**
-5. CMake tools for Windows（VS 工作负载通常可一起装）
+这套结构里，`MainDlg` 只负责界面和任务调度，`LLMEngine` 只负责模型推理，`ConversationManager` 只负责会话数据。推理线程不直接操作 MFC 控件，而是把生成片段投递给 UI 线程，因此模型计算时窗口仍能刷新和响应 Stop。
 
-另外安装 Git for Windows。
+## 工程结构
 
-## 2. 第一次运行
+```text
+2026_MFC_design/
+├─ CMakeLists.txt                    CMake 工程入口，链接 MFC 与 llama.cpp
+├─ setup_llama.bat                   llama.cpp 缺失时恢复固定版本
+├─ build_cpu.bat                     VS2022 x64 CPU Release 构建
+├─ build_cuda.bat                    VS2022 x64 CUDA Release 构建
+├─ REPORT_AI_ASSISTANCE_TEMPLATE.md  AI 辅助过程记录模板
+├─ src/
+│  ├─ LocalSenseNova.cpp/.h          MFC 应用入口、高 DPI 与 RichEdit 初始化
+│  ├─ MainDlg.cpp/.h                 主界面、线程调度、流式消息和参数预设
+│  ├─ LLMEngine.cpp/.h               GGUF 加载、Prompt、Decode 与 Sampling
+│  ├─ ConversationManager.cpp/.h     多会话和本地历史文件
+│  ├─ AppSettings.h                  默认推理参数
+│  ├─ Utf8.cpp/.h                    UTF-8 与 UTF-16 转换
+│  ├─ LocalSenseNova.rc              MFC 对话框资源
+│  └─ resource.h
+└─ third_party/
+   └─ llama.cpp/                     当前仓库随附的 llama.cpp 源码
+```
 
-### 2.1 拉取 llama.cpp
+## 构建与运行
 
-双击：
+### 1. 准备环境
+
+建议使用 Windows 10/11 x64 和 Visual Studio 2022。在 Visual Studio Installer 中安装：
+
+1. 使用 C++ 的桌面开发；
+2. MSVC v143；
+3. Windows 10/11 SDK；
+4. C++ MFC for latest v143 build tools（x86 & x64）；
+5. C++ CMake tools for Windows。
+
+只有在需要重新下载 `third_party/llama.cpp` 时才需要 Git for Windows。
+
+### 2. 取得源码
+
+```bat
+git clone https://github.com/7Lexington8/2026_MFC_design.git
+cd 2026_MFC_design
+```
+
+当前 `main` 已包含项目所用的 llama.cpp 源码。如果 `third_party\llama.cpp\CMakeLists.txt` 缺失，再运行：
 
 ```bat
 setup_llama.bat
 ```
 
-脚本会克隆官方 `llama.cpp` 的 **b10516（2026-08-20 发布版）** 到：
+脚本固定拉取 llama.cpp `b10516`，但目录已经存在时只会跳过下载，不会自动检查或修正现有源码版本。因此应以最终实际构建所用的 llama.cpp commit 为准，并把它记录到实验报告。不要在答辩前临时升级到最新 `master`，否则上游 API 变化可能导致编译失败。
 
-```text
-third_party/llama.cpp/
-```
+### 3. 构建 CPU 版本
 
-### 2.2 CPU 版本
-
-双击：
+双击或在命令行运行：
 
 ```bat
 build_cpu.bat
 ```
 
-生成成功后运行：
+生成文件：
 
 ```text
-build/Release/LocalSenseNova.exe
+build\Release\LocalSenseNova.exe
 ```
 
-### 2.3 NVIDIA GPU 版本（可选）
+脚本会优先使用当前命令行里的 CMake；找不到时，会通过 Visual Studio Installer 的 `vswhere.exe` 定位 VS2022 并初始化 x64 编译环境。CPU 配置关闭 CUDA、OpenMP 和本机专用指令优化，便于在不同 x64 电脑间演示。
 
-电脑装有兼容 NVIDIA GPU + CUDA Toolkit 时，可运行：
+### 4. 构建 CUDA 版本（可选）
+
+需要兼容的 NVIDIA GPU、驱动和 CUDA Toolkit：
 
 ```bat
 build_cuda.bat
 ```
 
-生成：
+生成文件：
 
 ```text
-build-cuda/Release/LocalSenseNova.exe
+build-cuda\Release\LocalSenseNova.exe
 ```
 
-程序会在 llama.cpp 构建支持 GPU offload 时尝试将模型层卸载到 GPU；CPU-only 构建自动走 CPU。
+CUDA 构建通过 `GGML_CUDA=ON` 启用后端。运行时如果 llama.cpp 检测到 GPU offload 支持，程序会尽量卸载模型层到 GPU；实际卸载层数和速度取决于显卡、显存、驱动、CUDA 版本和模型大小。CPU 构建会自动走 CPU。
 
-## 3. 模型
+### 5. 开始对话
 
-程序没有把具体文件名写死，只要求扩展名为 `.gguf`。运行后：
+1. 启动 `LocalSenseNova.exe`；
+2. 点击“选择并加载 GGUF”；
+3. 选择本机的 SenseNova 8B GGUF，等待状态栏显示加载成功；
+4. 输入问题并发送；
+5. 需要时展开“参数”面板，选择预设或修改参数，修改从下一次生成开始生效。
 
-1. 点击 **选择并加载 GGUF**
-2. 选择模型
-3. 等待状态栏出现“模型加载成功”
-4. 输入问题并发送
-
-为了减少 Windows 路径兼容问题，建议模型放在纯英文路径，例如：
+为减少模型库对 Windows 路径处理方式不同带来的问题，演示时建议使用较短的纯英文模型路径，例如：
 
 ```text
 D:\models\SenseNova8B.gguf
 ```
 
-## 4. 工程结构
+## 一次生成是怎样完成的
 
 ```text
-LocalSenseNova/
-├─ CMakeLists.txt
-├─ setup_llama.bat
-├─ build_cpu.bat
-├─ build_cuda.bat
-├─ src/
-│  ├─ LocalSenseNova.cpp/.h      MFC App 入口
-│  ├─ MainDlg.cpp/.h             主界面、消息分发、多线程
-│  ├─ LLMEngine.cpp/.h           llama.cpp 模型加载与推理核心
-│  ├─ ConversationManager.cpp/.h 多会话与本地历史保存
-│  ├─ AppSettings.h              推理参数
-│  ├─ Utf8.cpp/.h                UTF-8 / Unicode 转换
-│  ├─ LocalSenseNova.rc          MFC 对话框资源
-│  └─ resource.h
-└─ third_party/
-   └─ llama.cpp/                 setup 脚本自动下载
+点击发送
+   ↓
+校验模型、输入和参数
+   ↓
+把用户消息加入当前会话，复制完整历史与当前参数
+   ↓
+std::thread 调用 LLMEngine::Generate
+   ↓
+System Prompt + 完整历史 → 模型 Chat Template
+   ↓
+Tokenize → 分批 Decode Prompt
+   ↓
+Repeat Penalty → Top-K → Top-P → Temperature + Dist
+（Temperature = 0 时改用 Greedy）
+   ↓
+逐 Token Sample、Decode，并通过 callback 返回 UTF-8 片段
+   ↓
+PostMessage(WM_STREAM_TOKEN) 交给 MFC UI 线程
+   ↓
+CRichEditCtrl 追加显示
+   ↓
+保存回答与会话历史，状态栏显示 token 数和 tok/s
 ```
 
-## 5. 模块工作流
+模型加载也在后台线程完成，不过 v0.3 暂不支持中途取消加载。Stop 针对生成过程使用原子标志协作停止，会在当前一次 `llama_decode` 返回后响应，而不是强制终止线程。
 
-```text
-用户点击发送
-    ↓
-MainDlg 读取参数 + 当前会话历史
-    ↓
-启动 std::thread
-    ↓
-LLMEngine::Generate
-    ↓
-llama_chat_apply_template
-    ↓
-llama_tokenize
-    ↓
-llama_decode(prompt)
-    ↓
-Sampler: Repeat Penalty → Top-K → Top-P → Temperature → Dist
-    ↓
-逐 Token 生成
-    ↓
-PostMessage(WM_APP + ...)
-    ↓
-MFC UI 线程追加到 CRichEditCtrl
-```
+## 参数与预设
 
-这正是汇报时最值得讲的“**推理线程与 UI 线程解耦**”。
+| 参数 | 默认值 | 界面范围 | 作用 |
+|---|---:|---:|---|
+| System Prompt | 中文通用助手 | 文本 | 设定角色、语气和任务约束 |
+| Temperature | 0.80 | 0–2 | 越低越稳定；设为 0 时使用贪心采样 |
+| Top-P | 0.95 | 0–1 | 只保留累计概率达到阈值的候选 token |
+| Top-K | 40 | 0–500 | 只保留概率最高的 K 个候选；0 表示不限制 |
+| Repeat Penalty | 1.10 | 0.5–2 | 对最近 64 个 token 做重复惩罚，1.0 相当于关闭 |
+| Max Tokens | 512 | 1–4096 | 本次最多生成的 token 数，仍受剩余上下文限制 |
+| Context Size | 4096 | v0.3 固定 | Prompt 与回答共用的上下文容量，当前没有界面输入框 |
 
-## 6. 参数说明
+四套预设会同时调整 System Prompt 和采样参数：
 
-- `Temperature`：0~2。低值更稳定，高值更多样。
-- `Top-P`：0~1。核采样阈值。
-- `Top-K`：只保留概率最高的 K 个候选，0 表示不限制。
-- `Repeat Penalty`：重复惩罚，1.0 相当于关闭；通常可用 1.05~1.15。
-- `Max Tokens`：一次最多生成多少 token。
-- `System Prompt`：定义角色、回答风格与任务约束。
+| 预设 | Temperature | Top-P | Top-K | Repeat Penalty | 使用场景 |
+|---|---:|---:|---:|---:|---|
+| 普通助手 | 0.80 | 0.95 | 40 | 1.10 | 一般问答 |
+| C++ 代码助手 | 0.20 | 0.90 | 40 | 1.05 | 更稳定的代码与解释 |
+| 中英翻译 | 0.20 | 0.90 | 40 | 1.05 | 减少无关扩写 |
+| 公文写作 | 0.40 | 0.90 | 40 | 1.10 | 正式、结构化中文 |
 
-## 7. 当前实现的一个设计选择
+预设不会改动 Max Tokens。参数是整个应用共享的运行时设置，目前不会按会话分别保存，也不会在重启后恢复。
 
-每次生成时，本项目会把**当前会话完整历史重新套入模型自带 chat template**，然后清空 KV memory 后重新编码历史。
+## 多会话与本地持久化
 
-优点：实现简单、稳定、容易解释，多会话切换不会把不同会话的 KV cache 搞混。
+- 左侧列表支持新建、切换和删除会话；第一条用户消息会自动生成最多 14 个字符的会话标题。
+- 启动时自动读取历史；每次生成结束和程序正常退出时自动保存。
+- 历史文件位于 EXE 同目录：`LocalSenseNovaHistory.dat`。
+- 文件使用项目自定义的 `LSNV1` 二进制格式，保存会话标题及用户/助手消息。
+- 模型路径、System Prompt、参数、预设和性能统计不会写入历史文件。
 
-缺点：对话很长时首 token 延迟会增加。
+历史文件没有加密。不要在公共提交包里附带包含个人信息的聊天记录，同时要保证 EXE 所在目录具有写权限。
 
-如果后面想继续冲“功能拓展”，可以再做：
+## 已验证环境
 
-- 每个会话独立 KV Cache / prompt cache
-- Markdown 与代码块高亮
-- 模型加载进度条
-- Context 使用率可视化
-- 导出 Markdown/TXT 聊天记录
-- GPU/CPU 占用与内存统计
-- 首 Token 延迟 TTFT
-- 性能对比实验：Temperature / Top-K / Top-P 不同组合
+以下是项目组当前的实机验证记录。仓库没有附带 GGUF、运行日志和性能截图，最终提交时应补上演示机的完整配置与复测结果。
 
-## 8. 重要：AI 辅助过程要写进实验报告
+| 项目 | 验证情况 |
+|---|---|
+| 操作系统 | Windows 11 x64 |
+| 开发工具 | Visual Studio 2022、MSVC v143、MFC、CMake |
+| 构建配置 | x64 Release CPU |
+| 推理库 | 按 llama.cpp `b10516` 接口完成集成；最终提交记录实际源码 commit |
+| 模型流程 | SenseNova 8B GGUF 加载、对话、流式输出、Stop、多会话与历史恢复 |
+| 界面 | 程序启动、窗口缩放和高 DPI 启动布局 |
 
-课程允许 AI 辅助编程，但要求在报告中说明 AI 辅助过程与配置步骤。因此建议保存：
+CUDA 路径是项目提供的可选构建与自动 offload 支持，不在这里写未经本机记录证明的显卡型号、速度或“所有设备均可运行”。最终性能应以答辩电脑上的实测结果为准。
 
-- AI 用于哪些模块：架构设计、MFC 消息机制、llama.cpp API 接入、Debug 等
-- 你们自己进行了哪些验证和修改
-- Visual Studio / CMake / llama.cpp / 模型版本
-- CPU/GPU 配置
-- 参数测试结果
+## 已知限制
 
-不要写成“AI 一键生成整个程序”。报告里更合适的表述是：AI 用于 API 查询、代码框架建议和错误定位，最终由小组完成集成、测试、参数调节和功能拓展。
+1. 每轮生成都会清空当前推理 memory，并把完整会话历史重新套入 Chat Template 后重新编码。实现容易维护、切换会话不串上下文，但长对话的首 Token 等待会变长。
+2. 默认 Context Size 为 4096，当前不在界面中开放；历史超限时会提示新建会话、减少内容或修改代码配置，不会自动截断或摘要。
+3. 同一时间只运行一个模型加载或生成任务；模型加载不可取消，Stop 也要等当前一次 Decode 返回。
+4. 聊天区支持富文本字体和颜色，但暂不渲染 Markdown，也没有代码块语法高亮。
+5. 历史文件未加密；模型路径和参数不持久化；删除会话没有撤销。保存失败目前没有单独的界面提示，异常退出也可能丢失最后一次未落盘的会话操作。
+6. 高 DPI 缩放按启动时所在屏幕初始化。把窗口拖到缩放比例不同的显示器后，如布局不理想，重启程序可重新按当前屏幕适配。
+7. 兼容性取决于 GGUF 的模型架构和 Chat Template。模型没有可用模板时会回退到通用的 `System/User/Assistant` 文本格式，回答效果不保证与 SenseNova 一致。
+8. `tok/s` 统计的是逐 Token 生成阶段，不包含模型加载和 Prompt 预填时间；不同电脑、上下文长度和量化版本之间不能直接横向比较。
 
-## 9. 本版本的验证边界
+## AI 辅助说明
 
-本工程是在非 Windows 环境中生成，因此这里无法实际启动 MFC 或加载你们手里的 GGUF 做最终编译运行测试。
+本项目在开发中使用生成式 AI 辅助需求拆解、llama.cpp API 查询、MFC 消息机制设计、编译错误定位和文档检查。AI 给出的建议没有直接作为最终结果提交；小组成员负责环境搭建、代码整合、编译修正、模型联调、参数测试、界面调整和最终演示。
 
-`LLMEngine.cpp` 按 2026-08 的 llama.cpp 公共 C API 编写；`setup_llama.bat` 已固定到发布版 **b10516**，避免 master 分支更新导致接口漂移。若你们后续主动升级 llama.cpp，再出现 API 变化，应先回退到 b10516 验证。
+课程报告应按实际过程填写 [`REPORT_AI_ASSISTANCE_TEMPLATE.md`](REPORT_AI_ASSISTANCE_TEMPLATE.md)，至少记录：
 
-建议课程工程记录：
+- AI 参与了哪些问题，给出了什么建议；
+- 小组怎样核对、修改或放弃这些建议；
+- Windows、VS、MSVC、llama.cpp、模型量化版本和硬件配置；
+- 遇到的代表性错误、定位过程和最终修复；
+- CPU/CUDA、采样参数和稳定性测试结果。
 
-```text
-llama.cpp commit = xxxxxxxxx
-```
+不要写“AI 一键生成了整个项目”，也不要虚构没有实际做过的提示词、测试或人工修改。
 
-之后全组都使用同一 commit。
+## 10 分钟答辩建议（4 人）
 
-## Windows 普通 CMD 找不到 CMake？
+| 时间 | 成员 | 主要内容 | 要让老师看到的证据 |
+|---|---|---|---|
+| 0:00–2:00 | A | 题目要求、为什么做本地推理、v0.3 完成项 | 一页目标与功能总览 |
+| 2:00–4:30 | B | 现场演示：加载已准备好的模型、发送问题、流式输出、Stop、参数预设 | 程序真实运行，不依赖网络 |
+| 4:30–6:45 | C | 工程架构和线程设计 | `std::thread → callback → PostMessage → UI` 流程图 |
+| 6:45–8:45 | D | llama.cpp 推理链、采样参数、多会话与历史文件 | 参数改变生效、切换会话、重启恢复 |
+| 8:45–10:00 | A | 实测环境、分工、AI 辅助边界、已知限制和后续改进 | 测试表与一页总结 |
 
-V0.2 的 `build_cpu.bat` / `build_cuda.bat` 会自动通过 Visual Studio Installer 的 `vswhere.exe` 定位 VS 2022，并调用 `VsDevCmd.bat` 初始化编译环境。因此即使普通 CMD 中 `cmake --version` 无法识别，也可以直接双击构建脚本。
+答辩时建议把重点放在三个“真实证据”上：模型确实在本机运行；采样参数确实进入 llama.cpp 的采样链；后台线程确实通过 Windows 消息把 Token 安全交回 UI。不要把时间耗在现场编译，也不要只按界面按钮逐个介绍。
 
-如果自动检测仍失败，可打开 **Developer Command Prompt for VS 2022**，进入本项目目录后运行 `build_cpu.bat`。
+演示前应提前完成模型加载并准备两条固定问题：一条短中文问答用于展示流式速度，一条 C++ 或翻译任务用于展示预设差异。另备一段短录屏和关键截图，防止演示机驱动、显存或模型路径临时出问题。
+
+## 最终提交前检查
+
+- [ ] 在最终答辩电脑上重新执行 CPU 构建、启动、加载模型、生成、Stop、切换会话和重启恢复测试。
+- [ ] 如果展示 CUDA，记录显卡、显存、驱动、CUDA Toolkit、GGUF 量化类型、Prompt tokens、生成 tokens 和 tok/s；没有实测就只说明“提供构建支持”。
+- [ ] 提交源码、构建脚本、README、实验报告、必要截图和测试记录；当前仓库随附完整 `third_party/llama.cpp`，按课程体积要求决定是否保留。
+- [ ] 不提交 GGUF、`build/`、`build-cuda/`、`.vs/`、日志、个人绝对路径或 `LocalSenseNovaHistory.dat`；提交前全目录搜索一次 `.gguf`，避免模型被放在 `.gitignore` 未覆盖的嵌套目录。
+- [ ] 如果提交包不含 `third_party/llama.cpp`，先在一台干净电脑验证 `setup_llama.bat` 能恢复 `b10516`，并说明首次构建需要网络。
+- [ ] 清理演示用私人对话，确认 EXE 目录可写，并确认目标电脑具备所需的 VC++/MFC 运行库。
+- [ ] 随附第三方源码时保留 `third_party/llama.cpp/LICENSE`，并单独核对所用 GGUF 的下载、展示与分发许可。
+- [ ] 报告中的版本、硬件、参数、截图、性能数字和最终代码保持一致；不要使用没有复现过的数据。
+- [ ] 为最终提交保留明确的 commit SHA，建议同时创建 `v0.3` 标签，避免答辩前误用其他版本。
+
+## 版本说明
+
+- 项目版本：`v0.3`
+- llama.cpp 接口与恢复脚本基线：`b10516`（提交时另记实际源码 commit）
+- 语言与界面：C++17、MFC、Unicode
+- 目标平台：Windows x64
